@@ -44,6 +44,8 @@ import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { chartSize, useSessionMermaid } from "@/components/session-overlay";
 import { Hint } from "@/components/ui/hint";
 import { BUILTIN_MERMAID_LANGUAGE, PluginCodeBlock } from "@/components/plugin-renderers";
+import { MaterialsContext } from "@/components/materials-context";
+import { materialIdFromHref } from "@/src/core";
 
 /** Local rendering profile for host-mounted, display-only Markdown. Ordinary
  * transcript rendering (including SSR/static Streamdown) stays interactive. */
@@ -477,7 +479,57 @@ export function MarkdownStrong(props: ComponentProps<"strong"> & ExtraProps) {
 	);
 }
 
+// ─── Material links (fork: tutor `material:` links become chips) ────────────
+
+type HastNode = { type: string; tagName?: string; properties?: Record<string, unknown>; children?: HastNode[] };
+const MATERIAL_FRAGMENT = "#lh-material-";
+function visitLinks(node: HastNode, fn: (element: HastNode) => void): void {
+	if (node.type === "element" && node.tagName === "a") fn(node);
+	for (const child of node.children ?? []) visitLinks(child, fn);
+}
+
+/** Before sanitize: `material:t3f9a2c` would be stripped as an unknown
+ *  protocol, so it travels as an in-page fragment. */
+export function rehypeMaterialLinksIn() {
+	return (tree: HastNode) => visitLinks(tree, (a) => {
+		const id = materialIdFromHref(typeof a.properties?.href === "string" ? a.properties.href : null);
+		if (id) a.properties!.href = `${MATERIAL_FRAGMENT}${id}`;
+	});
+}
+
+/** After sanitize/harden: the fragment becomes a `material-link` element,
+ *  rendered by MaterialLink. Other links keep Streamdown's own handling. */
+export function rehypeMaterialLinksOut() {
+	return (tree: HastNode) => visitLinks(tree, (a) => {
+		const href = a.properties?.href;
+		if (typeof href !== "string" || !href.startsWith(MATERIAL_FRAGMENT)) return;
+		a.tagName = "material-link";
+		a.properties = { materialId: href.slice(MATERIAL_FRAGMENT.length) };
+	});
+}
+
+/** A known id opens the item in the Materials panel; an unknown one (or no
+ *  chat page) stays plain text. */
+function MaterialLink(props: Record<string, unknown> & ExtraProps) {
+	const materialId = typeof props.materialId === "string" ? props.materialId : undefined;
+	const children = props.children as ReactNode;
+	const materials = useContext(MaterialsContext);
+	if (!materialId || !materials?.has(materialId)) return <span>{children}</span>;
+	return (
+		<button
+			type="button"
+			data-testid="material-link"
+			data-material-id={materialId}
+			onClick={(event) => { blurAfterPointerClick(event); materials.open(materialId); }}
+			className="wrap-anywhere inline cursor-pointer appearance-none rounded-sm bg-primary/10 px-1 text-left font-medium text-primary underline decoration-dotted underline-offset-2 hover:bg-primary/20"
+		>
+			{children}
+		</button>
+	);
+}
+
 export const mdComponents = {
+	"material-link": MaterialLink,
 	code: MarkdownCode,
 	table: MarkdownTable,
 	span: MathDisplay,

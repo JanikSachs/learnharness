@@ -35,7 +35,7 @@ import {
   type PluginConfig,
   type StreamdownProps,
 } from "streamdown";
-import { mdComponents } from "@/components/md-blocks";
+import { mdComponents, rehypeMaterialLinksIn, rehypeMaterialLinksOut } from "@/components/md-blocks";
 import { repairMathForDisplay, transformMathDelimiters } from "@/src/core";
 import { rehypeGluePunctuation } from "@/components/md-nobreak";
 
@@ -377,11 +377,13 @@ export const streamdownRemend = { htmlTags: false };
 // Streamdown appends after the list.
 const [hardenPlugin, hardenOptions] = defaultRehypePlugins.harden as [unknown, Record<string, unknown>];
 export const streamdownRehypePlugins = [
+  rehypeMaterialLinksIn,
   ...Object.values({
     ...defaultRehypePlugins,
     harden: [hardenPlugin, { ...hardenOptions, allowedImagePrefixes: [] }],
   }),
   rehypeGluePunctuation,
+  rehypeMaterialLinksOut,
 ] as NonNullable<StreamdownProps["rehypePlugins"]>;
 
 export const MessageResponse = memo(

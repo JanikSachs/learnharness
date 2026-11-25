@@ -69,7 +69,10 @@ import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext, type SessionImage } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
+import { ArrowRightIcon, DumbbellIcon, MessageCircleQuestionIcon, TableIcon, WaypointsIcon } from "lucide-react";
+import { MaterialsList, RightPanel, type RightPanelTab } from "@/components/materials-panel";
+import { MaterialsContext, type MaterialsLinks } from "@/components/materials-context";
+import { collectMaterials, uniqueMaterials } from "@/src/core";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { PluginQuestionDock } from "./plugin-question-dock";
@@ -85,8 +88,8 @@ import { SelectionToolbar } from "@/components/selection-toolbar";
 import { createCiteAction, type CitationEditTarget } from "@/components/citation-actions";
 import { CitationActionsContext, type CitationActions } from "@/components/citation-chip";
 import { CitationCommentPopover } from "@/components/citation-comment-popover";
-import { revealCitationSource } from "@/components/citation-source";
-import { createSideQuestionActions, SideThreadBody, SideThreadPanel, SideThreadPopover } from "@/components/side-thread";
+import { revealCitationSource, revealMessage } from "@/components/citation-source";
+import { createSideQuestionActions, SideThreadBody, SideThreadPopover } from "@/components/side-thread";
 import { useSideThread, type SideThreadOpenArgs } from "@/components/use-side-thread";
 import { useRouter } from "next/navigation";
 import { PracticeDock } from "@/components/practice-dock";
@@ -1078,6 +1081,36 @@ export function Chat({
 			});
 		},
 	}), [chatId, router]);
+	// Materials (fork): tables/diagrams the tutor has shown, in the tabbed
+	// right panel beside the side-question thread. One tab shows at a time.
+	const materials = useMemo(() => uniqueMaterials(collectMaterials(nativeMessages)), [nativeMessages]);
+	const [materialsOpen, setMaterialsOpen] = useState(false);
+	const [panelTab, setPanelTab] = useState<RightPanelTab>("side");
+	const [materialFocus, setMaterialFocus] = useState<{ id: string; n: number } | null>(null);
+	const sidePanelOpen = sideThread.state?.mode === "panel";
+	useEffect(() => { if (sidePanelOpen) setPanelTab("side"); }, [sidePanelOpen, sideThread.state?.threadId]);
+	const openMaterials = useCallback((id?: string) => {
+		setMaterialsOpen(true);
+		setPanelTab("materials");
+		if (id) setMaterialFocus((prev) => ({ id, n: (prev?.n ?? 0) + 1 }));
+	}, []);
+	const materialsShowing = materialsOpen && (panelTab === "materials" || !sidePanelOpen);
+	const toggleMaterials = useCallback(() => {
+		if (materialsShowing) setMaterialsOpen(false);
+		else openMaterials();
+	}, [materialsShowing, openMaterials]);
+	useEffect(() => {
+		window.addEventListener(kbdEventForChat("toggle-materials"), toggleMaterials);
+		return () => window.removeEventListener(kbdEventForChat("toggle-materials"), toggleMaterials);
+	}, [toggleMaterials]);
+	const materialLinks = useMemo<MaterialsLinks>(() => {
+		const ids = new Set(materials.map((m) => m.id));
+		return { has: (id) => ids.has(id), open: (id) => openMaterials(id) };
+	}, [materials, openMaterials]);
+	const goToMaterialMessage = useCallback((messageId: string) => {
+		const context = scrollContextRef.current;
+		revealMessage({ transcript: transcriptElementRef.current, scroll: context ? { scrollRef: context.scrollRef, stopScroll: context.stopScroll } : null, messageId });
+	}, []);
 	useEffect(() => {
 		if (dictation.active) {
 			dictationWasActiveRef.current = true;
@@ -1625,6 +1658,7 @@ export function Chat({
 		>
 		<JobsContext.Provider value={jobs}>
 		<CitationActionsContext.Provider value={citationActions}>
+		<MaterialsContext.Provider value={materialLinks}>
 		{/* The session surface: the transcript column (header + scroller) and
 		    the plan-tree panel as full-height SIBLINGS — the panel spans top to
 		    bottom exactly like the left sidebar, and the header (name + phase
@@ -1753,6 +1787,20 @@ export function Chat({
 						</span>
 					) : (
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
+					)}
+					{materials.length > 0 && (
+						<Hint label="Tables and diagrams from this session" action="toggle-materials" side="bottom">
+							<button
+								type="button"
+								data-testid="materials-chip"
+								aria-pressed={materialsShowing}
+								onClick={(e) => { blurAfterPointerClick(e); toggleMaterials(); }}
+								className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+							>
+								<TableIcon className="size-3.5 text-primary" aria-hidden />
+								Materials ({materials.length})
+							</button>
+						</Hint>
 					)}
 					<PluginSessionTopBarActions readContext={actionContext} captureContext={captureActionContext} refreshRef={refreshPluginActions} />
 				</TopBar>
@@ -2165,8 +2213,18 @@ export function Chat({
 					}}
 				/>
 				</Conversation>
-				{sideThread.state?.mode === "panel" && (
-					<SideThreadPanel>
+				{(sidePanelOpen || materialsOpen) && (
+					<RightPanel
+						tabs={[
+							...(sidePanelOpen ? [{ id: "side" as const, label: "Side question" }] : []),
+							...(materialsOpen ? [{ id: "materials" as const, label: `Materials (${materials.length})` }] : []),
+						]}
+						active={materialsShowing ? "materials" : "side"}
+						onSelect={setPanelTab}
+					>
+					{materialsShowing ? (
+						<MaterialsList materials={materials} focus={materialFocus} onGoTo={goToMaterialMessage} onClose={() => setMaterialsOpen(false)} />
+					) : sideThread.state?.mode === "panel" && (
 						<SideThreadBody
 							key={sideThread.state.threadId}
 							state={sideThread.state}
@@ -2182,7 +2240,8 @@ export function Chat({
 							onClose={closeSideThread}
 							onCurrentStep={goToCurrentSideStep}
 						/>
-					</SideThreadPanel>
+					)}
+					</RightPanel>
 				)}
 
 				{sideThread.state?.mode === "popover" && (
@@ -2238,6 +2297,7 @@ export function Chat({
 				</div>
 			</div>
 		</div>
+		</MaterialsContext.Provider>
 		</CitationActionsContext.Provider>
 		</JobsContext.Provider>
 		</SessionMermaidContext.Provider>

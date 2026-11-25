@@ -37,7 +37,8 @@ export type KeyAction =
 	| "question-submit"
 	| "open-settings"
 	| "toggle-user-thinking"
-	| "toggle-question-thread";
+	| "toggle-question-thread"
+	| "toggle-materials";
 
 /** Where the cheat sheet groups an action (display only — dispatch is
  *  global; a seam that isn't mounted simply no-ops). */
@@ -71,6 +72,7 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "rename-session", label: "Rename session", scope: "chat", binding: "f2" },
 	{ id: "toggle-user-thinking", label: "Toggle all your thinking", scope: "chat", binding: "mod+t" },
 	{ id: "toggle-question-thread", label: "Question · ask for a nudge (side thread)", scope: "chat", binding: "mod+j" },
+	{ id: "toggle-materials", label: "Materials panel (tables and diagrams)", scope: "chat", binding: "mod+m" },
 	// Mod+F is surface-scoped: graph node search and session text Find share
 	// one action/binding. Only the currently mounted surface listens.
 	{ id: "find", label: "Find", scope: "global", binding: "mod+f" },

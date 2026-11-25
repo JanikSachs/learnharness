@@ -26,6 +26,7 @@ import type { PluginToolContext } from "../core/plugins.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL, type LhMessage } from "../core/native-messages.ts";
 import { activeCompactionOf, keptIndexFor } from "../core/compaction.ts";
 import { TIME_RULE, withTimeNotes } from "../core/time-notes.ts";
+import { withMaterialNotes } from "../core/materials.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 import { PluginQuestionLedger, type NativePluginQuestionContribution } from "./plugin-question-tools.ts";
@@ -206,11 +207,15 @@ function makeQuestionStopper(kind: AgentKind) {
 	};
 }
 
-/** toLlmMessages plus computed time notes. Must never throw (convertToLlm
- *  contract): on any formatting failure the plain history goes out. */
-function withTimeContext(timeZone: string) {
+/** toLlmMessages plus computed material notes and, with a zone, time
+ *  notes. Must never throw (convertToLlm contract): on any failure the
+ *  plain history goes out. */
+function withComputedNotes(timeZone: string | undefined) {
 	return (messages: AgentMessage[]) => {
-		const converted = toLlmMessages(messages);
+		let annotated: AgentMessage[] = messages;
+		try { annotated = withMaterialNotes(messages); } catch { /* plain history */ }
+		const converted = toLlmMessages(annotated);
+		if (!timeZone) return converted;
 		try {
 			const records = messages as unknown as readonly LhMessage[];
 			const active = activeCompactionOf(records);
@@ -305,7 +310,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// UI-only markers (plan-block) drop, the app's id fields strip, and
 		// an abort's dangling question call gets its INTERRUPTED result. It
 		// must never throw (pi's convertToLlm contract).
-		convertToLlm: opts.timeZone ? withTimeContext(opts.timeZone) : toLlmMessages,
+		convertToLlm: withComputedNotes(opts.timeZone),
 		...(opts.contextUpdates ? { prepareNextTurnWithContext: ({ context }: { context: { messages: AgentMessage[] } }) => {
 			const messages = opts.contextUpdates!(context.messages);
 			return messages.length ? { messages } : undefined;
