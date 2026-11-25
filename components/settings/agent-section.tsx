@@ -78,7 +78,7 @@ import {
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { prettyModel } from "@/components/usage-format";
 import { cn } from "@/lib/utils";
-import { SettingsGroup, SettingsRow, SettingsMenuTrigger, SettingsSegmentedControl, Toggle, CommitInput } from "./controls.tsx";
+import { SettingsGroup, SettingsRow, SettingsMenuTrigger, SettingsSegmentedControl, Toggle, CommitInput, ThinSelect } from "./controls.tsx";
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
 import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
 import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
@@ -213,6 +213,14 @@ export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics
  *  explicit-off record stays visible as stored. Pure — exported for tests. */
 export function composeGraphTools(agent: AgentSettings | undefined, on: boolean): AgentSettings {
 	return { ...agent, graphTools: { enabled: on } };
+}
+
+/** Compose the time-context switch (fork). Turning it on without a stored
+ *  zone presets the browser's zone, so the write is complete. */
+export function composeTimeContext(agent: AgentSettings | undefined, next: { enabled?: boolean; timeZone?: string }): AgentSettings {
+	const current = agent?.timeContext ?? {};
+	const timeZone = next.timeZone ?? current.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+	return { ...agent, timeContext: { ...current, ...next, timeZone } };
 }
 
 /** Compose: one slot's model/thinking override. Empty model = absent
@@ -964,6 +972,32 @@ export function AgentSection({
 						onChange={(includeReasoning) => onCompactionChange({ ...compaction, includeReasoning })}
 					/>
 				</SettingsRow>
+			</SettingsGroup>
+
+			<SettingsGroup label="Time" testid="group-time">
+				<SettingsRow
+					label="Time context"
+					hint="Tells the tutor your local date and time when a chat starts and after breaks of 3 hours or more"
+					testid="time-context-row"
+				>
+					<Toggle
+						checked={agent?.timeContext?.enabled === true}
+						label="time context"
+						onChange={(on) => onSectionChange(composeTimeContext(agent, { enabled: on }))}
+					/>
+				</SettingsRow>
+				{agent?.timeContext?.enabled === true && (
+					<SettingsRow label="Time zone" testid="time-zone-row">
+						<ThinSelect
+							value={agent.timeContext.timeZone ?? ""}
+							ariaLabel="time zone"
+							testid="select-time-zone"
+							onChange={(timeZone) => onSectionChange(composeTimeContext(agent, { timeZone }))}
+						>
+							{Intl.supportedValuesOf("timeZone").map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+						</ThinSelect>
+					</SettingsRow>
+				)}
 			</SettingsGroup>
 
 			<SettingsGroup label="System prompts" testid="group-prompts">

@@ -27,6 +27,7 @@ import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
 import {
+	activeTimeZone,
 	BACKGROUND_MODEL_ROLES,
 	FACTORY_SETTINGS,
 	MODEL_SLOTS,
@@ -88,6 +89,8 @@ export interface EffectiveSettings {
 		/** Prober graph tools (wave 7): passthrough delta as stored —
 		 * absent/undefined enabled = ON; consumers use graphToolsEnabled. */
 		graphTools: { enabled?: boolean };
+		/** Time context (fork): the active IANA zone, or null = off. */
+		timeZone: string | null;
 	};
 	/** The resolved strong/cheap/vision slots: each tier's concrete model or
 	 *  NULL when the tier holds no model (no factory floor — BYOK all the
@@ -208,6 +211,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			prompts: agent.prompts ?? {},
 			search: agent.search ?? {},
 			graphTools: agent.graphTools ?? {},
+			timeZone: activeTimeZone(agent.timeContext),
 		},
 		models: {
 			strong: resolveSlot(modelsSection.strong),

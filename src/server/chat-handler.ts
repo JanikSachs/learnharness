@@ -718,6 +718,7 @@ export async function handleChatInput(
 		},
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
+		...(effective.agent.timeZone ? { timeZone: effective.agent.timeZone } : {}),
 		// Debug (owner, 2026-10-04): teacher/prober raw provider events under
 		// LH_PROVIDER_EVENTS=1 (provider-events.ts); no-op otherwise.
 		chatId,
