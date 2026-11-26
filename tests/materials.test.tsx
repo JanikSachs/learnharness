@@ -22,6 +22,10 @@ const result = (id: string, callId: string, t: number) =>
 	({ id, role: "toolResult", toolCallId: callId, toolName: "send_to_user", content: [{ type: "text", text: "ok" }], isError: false, timestamp: t }) as unknown as LhMessage;
 const user = (id: string, t: number) => ({ id, role: "user", content: [{ type: "text", text: "q" }], timestamp: t }) as unknown as LhMessage;
 
+const answerResult = (id: string, callId: string, toolName: string, t: number, extra: Record<string, unknown> = {}) =>
+	({ id, role: "toolResult", toolCallId: callId, toolName, content: [{ type: "text", text: "a" }], isError: false, details: { answer: "x" }, timestamp: t, ...extra }) as unknown as LhMessage;
+const qcall = (id: string, name: string, args: Record<string, unknown>) => ({ type: "toolCall", id, name, arguments: args });
+
 describe("materials extraction", () => {
 	it("finds tables and mermaid fences, titled by the nearest heading", () => {
 		const items = extractFromMarkdown(`## The **capstone**\n\nText\n\n${TABLE}\n\n\`\`\`mermaid\ngraph TD\n  a[Start] --> b[End]\n\`\`\``);
@@ -41,6 +45,7 @@ describe("materials extraction", () => {
 			assistant("a2", 3, [send("c2", TABLE)], "error"),
 			assistant("a3", 4, [{ type: "toolCall", id: "p", name: "plan_init", arguments: { mermaid: "```mermaid\ngraph TD\na-->b\n```" } }]),
 			assistant("a4", 5, [{ type: "toolCall", id: "q", name: "quiz", arguments: { question: "q", explanation: TABLE } }]),
+			answerResult("r4", "q", "quiz", 6),
 		]);
 		const t = materialId("table", TABLE);
 		assert.deepEqual(items.map((i) => `${i.id}@${i.messageId}:${i.title}`), [`${t}@a1:look at | ask`, `${t}@a1:Second`, `${t}@a4:look at | ask`]);
@@ -71,6 +76,44 @@ describe("materials extraction", () => {
 		assert.equal(materialIdFromHref("material:M27"), null);
 		assert.equal(materialIdFromHref("material:x3f9a2c"), null);
 		assert.equal(materialIdFromHref("https://x"), null);
+	});
+});
+
+describe("materials: questions and failures", () => {
+	const t = materialId("table", TABLE);
+	it("hides a pending explanation until the real answer; the placeholder ack does not count", () => {
+		const call = assistant("a1", 1, [qcall("q", "quiz", { question: "q", explanation: TABLE })]);
+		assert.equal(collectMaterials([call]).length, 0);
+		const ack = answerResult("c_1", "q", "quiz", 2, { details: null });
+		assert.equal(collectMaterials([call, ack]).length, 0);
+		assert.deepEqual(collectMaterials([call, answerResult("r1", "q", "quiz", 3)]).map((i) => i.id), [t]);
+	});
+
+	it("reads only the question field of explain, recall, ask_user_question and probe", () => {
+		for (const name of ["explain", "recall", "ask_user_question", "probe"]) {
+			const call = assistant("a1", 1, [qcall("q", name, { question: TABLE, correctAnswer: `# X\n${TABLE}\n| p | q |\n|---|---|\n| 1 | 2 |`, rubric: "| r | s |\n|---|---|\n| 1 | 2 |" })]);
+			assert.deepEqual(collectMaterials([call]).map((i) => i.id), [t], name);
+		}
+	});
+
+	it("skips calls whose result errored, keeps the rest of the message", () => {
+		const other = "| z | y |\n|---|---|\n| 1 | 2 |";
+		const record = [
+			assistant("a1", 1, [{ type: "text", text: other }, send("s", TABLE), qcall("q", "explain", { question: TABLE })]),
+			{ ...result("r1", "s", 2), isError: true } as unknown as LhMessage,
+			answerResult("r2", "q", "explain", 3, { isError: true }),
+		];
+		assert.deepEqual(collectMaterials(record).map((i) => i.id), [materialId("table", other)]);
+	});
+
+	it("groups notes by position when messages have no id", () => {
+		const a = (content: unknown[]) => { const m = assistant("", 1, content) as unknown as Record<string, unknown>; delete m.id; return m as unknown as AgentMessage; };
+		const other = "| z | y |\n|---|---|\n| 1 | 2 |";
+		const out = withMaterialNotes([a([send("c1", TABLE)]), a([send("c2", other)])]) as unknown as { id?: string; role: string; content: unknown }[];
+		const notes = out.filter((m) => m.role === "custom");
+		assert.deepEqual(notes.map((n) => n.id), ["materials-note-0", "materials-note-1"]);
+		assert.ok(String(notes[0]!.content).includes(t) && !String(notes[0]!.content).includes(materialId("table", other)));
+		assert.deepEqual(out.map((m) => m.role), ["assistant", "custom", "assistant", "custom"]);
 	});
 });
 

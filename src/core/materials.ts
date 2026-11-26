@@ -14,7 +14,8 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { LhMessage } from "./native-messages.ts";
+import { failedOutputCallIds, type LhMessage } from "./native-messages.ts";
+import { QUESTION_TOOLS } from "./pending.ts";
 
 export type MaterialKind = "table" | "diagram";
 
@@ -49,15 +50,22 @@ export function materialId(kind: MaterialKind, markdown: string): string {
 	return `${kind === "table" ? "t" : "d"}${(hash % 36 ** 6).toString(36).padStart(6, "0")}`;
 }
 
-/** The tutor's learner-facing markdown, in content order. */
-function visibleTexts(message: LhMessage): string[] {
+/** The tutor's learner-facing markdown, in content order. Failed calls are
+ *  skipped; a question's `explanation` (already on the pending call) only
+ *  counts once the learner's real answer exists. `question` is shown at once.
+ *  Answer-commitment fields are never read. */
+function visibleTexts(message: LhMessage, failedSend: ReadonlySet<string>, errored: ReadonlySet<string>, answered: ReadonlySet<string>): string[] {
 	if (message.role !== "assistant") return [];
 	const out: string[] = [];
 	for (const block of message.content) {
 		if (block.type === "text") out.push(block.text);
 		else if (block.type === "toolCall") {
 			const args = (block.arguments ?? {}) as Record<string, unknown>;
-			const fields = block.name === "send_to_user" ? ["message"] : block.name === "quiz" || block.name === "probe" ? ["question", "explanation"] : [];
+			let fields: string[] = [];
+			if (block.name === "send_to_user") fields = failedSend.has(block.id) ? [] : ["message"];
+			else if ((QUESTION_TOOLS as readonly string[]).includes(block.name) && !errored.has(block.id)) {
+				fields = (block.name === "quiz" || block.name === "probe") && answered.has(block.id) ? ["question", "explanation"] : ["question"];
+			}
 			for (const field of fields) if (typeof args[field] === "string") out.push(args[field] as string);
 		}
 	}
@@ -113,20 +121,34 @@ export function extractFromMarkdown(text: string): { kind: MaterialKind; title: 
 	return out;
 }
 
+/** Collect with each item's position in `messages`. */
+function collectIndexed(messages: readonly LhMessage[]): { index: number; item: Material }[] {
+	const failedSend = failedOutputCallIds(messages);
+	const errored = new Set<string>();
+	const answered = new Set<string>();
+	for (const m of messages) {
+		if (m.role !== "toolResult") continue;
+		if (m.isError) errored.add(m.toolCallId);
+		// Real answers carry details; the transient "Question posed" ack has none.
+		else if (m.details != null && !(m.details as { dismissed?: boolean }).dismissed) answered.add(m.toolCallId);
+	}
+	const out: { index: number; item: Material }[] = [];
+	messages.forEach((message, index) => {
+		if (message.role !== "assistant" || message.stopReason === "error" || message.stopReason === "aborted") return;
+		for (const text of visibleTexts(message, failedSend, errored, answered)) {
+			for (const item of extractFromMarkdown(text)) {
+				out.push({ index, item: { id: materialId(item.kind, item.markdown), ...item, messageId: message.id, timestamp: message.timestamp } });
+			}
+		}
+	});
+	return out;
+}
+
 /** Every material occurrence in the record, in record order (a repeated
  *  item appears once per message, with the same id). Failed or aborted
  *  generations never reached the learner and are skipped. */
 export function collectMaterials(messages: readonly LhMessage[]): Material[] {
-	const out: Material[] = [];
-	for (const message of messages) {
-		if (message.role !== "assistant" || message.stopReason === "error" || message.stopReason === "aborted") continue;
-		for (const text of visibleTexts(message)) {
-			for (const item of extractFromMarkdown(text)) {
-				out.push({ id: materialId(item.kind, item.markdown), ...item, messageId: message.id, timestamp: message.timestamp });
-			}
-		}
-	}
-	return out;
+	return collectIndexed(messages).map((x) => x.item);
 }
 
 /** One entry per id, first occurrence wins (the panel's list). */
@@ -145,18 +167,19 @@ export function materialsNoteText(items: readonly Material[]): string {
  *  are never separated. toLlmMessages flattens them like any marker. */
 export function withMaterialNotes(messages: readonly AgentMessage[]): AgentMessage[] {
 	const records = messages as unknown as readonly LhMessage[];
-	const byMessage = new Map<string, Material[]>();
-	for (const item of collectMaterials(records)) {
-		const list = byMessage.get(item.messageId) ?? [];
+	// Grouped by position: live steps may have no message id yet.
+	const byMessage = new Map<number, Material[]>();
+	for (const { index, item } of collectIndexed(records)) {
+		const list = byMessage.get(index) ?? [];
 		if (list.some((other) => other.id === item.id)) continue;
 		list.push(item);
-		byMessage.set(item.messageId, list);
+		byMessage.set(index, list);
 	}
 	if (byMessage.size === 0) return [...messages];
 	const after = new Map<number, AgentMessage[]>();
 	records.forEach((message, i) => {
 		if (message.role !== "assistant") return;
-		const items = byMessage.get(message.id);
+		const items = byMessage.get(i);
 		if (!items) return;
 		const calls = new Set(message.content.flatMap((b) => (b.type === "toolCall" ? [b.id] : [])));
 		let at = i;
@@ -169,7 +192,7 @@ export function withMaterialNotes(messages: readonly AgentMessage[]): AgentMessa
 		// customType is deliberately outside the record's (public) union: it
 		// exists only inside convertToLlm and is never saved.
 		const marker = {
-			id: `materials-note-${message.id}`, role: "custom", customType: "materials-note",
+			id: `materials-note-${i}`, role: "custom", customType: "materials-note",
 			content: materialsNoteText(items), display: false, details: null,
 			// The insertion point's time keeps time-note gaps honest.
 			timestamp: records[at]!.timestamp,
