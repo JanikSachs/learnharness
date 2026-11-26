@@ -215,6 +215,11 @@ export function composeGraphTools(agent: AgentSettings | undefined, on: boolean)
 	return { ...agent, graphTools: { enabled: on } };
 }
 
+/** Select options: supported zones plus "UTC" and the in-use zone (aliases and UTC are omitted by Intl). */
+export function timeZoneOptions(supported: readonly string[], current?: string): string[] {
+	return [...new Set([...supported, "UTC", ...(current ? [current] : [])])].sort();
+}
+
 /** Compose the time-context switch (fork). Turning it on without a stored
  *  zone presets the browser's zone, so the write is complete. */
 export function composeTimeContext(agent: AgentSettings | undefined, next: { enabled?: boolean; timeZone?: string }): AgentSettings {
@@ -994,7 +999,7 @@ export function AgentSection({
 							testid="select-time-zone"
 							onChange={(timeZone) => onSectionChange(composeTimeContext(agent, { timeZone }))}
 						>
-							{Intl.supportedValuesOf("timeZone").map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+							{timeZoneOptions(Intl.supportedValuesOf("timeZone"), agent.timeContext.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone).map((zone) => <option key={zone} value={zone}>{zone}</option>)}
 						</ThinSelect>
 					</SettingsRow>
 				)}
