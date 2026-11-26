@@ -1109,7 +1109,8 @@ export function Chat({
 	}, [materials, openMaterials]);
 	const goToMaterialMessage = useCallback((messageId: string) => {
 		const context = scrollContextRef.current;
-		revealMessage({ transcript: transcriptElementRef.current, scroll: context ? { scrollRef: context.scrollRef, stopScroll: context.stopScroll } : null, messageId });
+		const dock = pendingRef.current?.messageId === messageId ? document.querySelector<HTMLElement>('[data-testid="question-dock"]') : null;
+		revealMessage({ transcript: transcriptElementRef.current, scroll: context ? { scrollRef: context.scrollRef, stopScroll: context.stopScroll } : null, messageId, pendingDock: dock });
 	}, []);
 	useEffect(() => {
 		if (dictation.active) {
@@ -2018,7 +2019,7 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} toolCallId={part.toolCallId} />
+																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} toolCallId={part.toolCallId} anchorId={part.sourceMessageId && !sourceTextParts.has(part.sourceMessageId) ? messageAnchorId(part.sourceMessageId) : undefined} />
 															);
 														}
 														return null;
