@@ -5,10 +5,11 @@
  * model-visible prefix stays stable across turns (prompt caching, Claude
  * Code context reuse).
  *
- * Placement: after the first non-system message (start of chat), and after
- * any message ending a gap of GAP_MS or more. Never between an assistant
- * message and its tool results: the note moves past assistant messages and
- * whole runs of tool results.
+ * Placement: after the first non-system message (start of chat), after
+ * any message ending a gap of GAP_MS or more, and (as a one-line moment
+ * note) after the first message following a compaction head or crossing
+ * local midnight. Never between an assistant message and its tool
+ * results: the note moves past the run of results answering its calls.
  *
  * Browser-safe: pure logic, Intl only.
  */
@@ -54,11 +55,17 @@ export function formatGap(ms: number): string {
 	return days >= 1 ? `${plural(days, "day")} ${plural(hours, "hour")}` : `${plural(hours, "hour")} ${plural(minutes % 60, "minute")}`;
 }
 
+function momentNote(now: number, timeZone: string): string {
+	return `[app: time] ${formatMoment(now, timeZone, true)} (${timeZone}).`;
+}
+
 export function timeNoteText(now: number, previous: number | null, timeZone: string): string {
-	const head = `[app: time] ${formatMoment(now, timeZone, true)} (${timeZone}).`;
+	const head = momentNote(now, timeZone);
 	if (previous === null) return `${head}\nStart of this chat.`;
 	return `${head}\nPrevious message: ${formatMoment(previous, timeZone, true)}.\nGap: ${formatGap(now - previous)}.`;
 }
+
+const localDate = (ms: number, timeZone: string) => formatMoment(ms, timeZone, false).slice(0, 10);
 
 /** Insert computed time notes into an already-converted LLM history.
  *  `hasCompactionHead`: the first non-system message is a compaction
@@ -67,7 +74,9 @@ export function withTimeNotes(messages: readonly Message[], timeZone: string, ha
 	const out: Message[] = [];
 	let previous: number | null = null;
 	let first = true;
+	let anchor = false; // next dated message follows a compaction head
 	let pending: { text: string; timestamp: number } | null = null;
+	let outstanding = new Set<string>(); // tool call ids still awaiting results
 	const flush = () => {
 		if (!pending) return;
 		out.push({ role: "user", content: [{ type: "text", text: pending.text }], timestamp: pending.timestamp });
@@ -83,14 +92,19 @@ export function withTimeNotes(messages: readonly Message[], timeZone: string, ha
 		if (at !== null && !(first && hasCompactionHead)) {
 			if (first) pending = { text: timeNoteText(at, null, timeZone), timestamp: at };
 			else if (previous !== null && at - previous >= GAP_MS) pending = { text: timeNoteText(at, previous, timeZone), timestamp: at };
+			else if (anchor || (previous !== null && localDate(at, timeZone) !== localDate(previous, timeZone))) pending = { text: momentNote(at, timeZone), timestamp: at };
 			previous = at;
+			anchor = false;
 		}
+		if (first && hasCompactionHead) anchor = true;
 		first = false;
-		// Hold the note while the next message must stay adjacent: after an
-		// assistant (its tool results follow) and inside a tool-result run.
+		// Hold the note only past the tool results answering this
+		// assistant's calls, so its position never depends on later messages.
+		if (m.role === "assistant") outstanding = new Set(m.content.flatMap((b) => (b.type === "toolCall" ? [b.id] : [])));
+		else if (m.role === "toolResult") outstanding.delete(m.toolCallId);
+		else outstanding.clear();
 		const next = messages[i + 1];
-		if (m.role === "assistant") continue;
-		if (m.role === "toolResult" && next?.role === "toolResult") continue;
+		if (next?.role === "toolResult" && outstanding.has(next.toolCallId)) continue;
 		flush();
 	}
 	flush();
