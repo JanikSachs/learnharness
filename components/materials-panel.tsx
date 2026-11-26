@@ -33,6 +33,12 @@ export function clampPanelWidth(width: number, areaWidth: number): number {
 	return Math.round(Math.max(MIN_WIDTH, Math.min(width, Math.max(MIN_WIDTH, areaWidth * MAX_FRACTION))));
 }
 
+function saveWidth(width: number) {
+	try { window.localStorage.setItem(WIDTH_KEY, String(width)); } catch { /* private mode */ }
+}
+
+const KEY_STEP = 16;
+
 export function RightPanel({ tabs, active, onSelect, children }: {
 	tabs: { id: RightPanelTab; label: string }[];
 	active: RightPanelTab;
@@ -53,18 +59,39 @@ export function RightPanel({ tabs, active, onSelect, children }: {
 		const up = () => {
 			window.removeEventListener("pointermove", move);
 			window.removeEventListener("pointerup", up);
-			try { window.localStorage.setItem(WIDTH_KEY, String(last)); } catch { /* private mode */ }
+			saveWidth(last);
 		};
 		window.addEventListener("pointermove", move);
 		window.addEventListener("pointerup", up);
 	}, []);
+	const area = typeof window === "undefined" ? 2 * width : areaWidth();
+	const shownWidth = clampPanelWidth(width, area);
+	const maxWidth = clampPanelWidth(Infinity, area);
+	const resizeKey = (event: React.KeyboardEvent<HTMLDivElement>) => {
+		const step = event.shiftKey ? 4 * KEY_STEP : KEY_STEP;
+		const next = event.key === "ArrowLeft" ? shownWidth + step : event.key === "ArrowRight" ? shownWidth - step
+			: event.key === "Home" ? MIN_WIDTH : event.key === "End" ? maxWidth : null;
+		if (next === null) return;
+		// Handled here: a live quiz's document-level arrows must not also move.
+		event.preventDefault();
+		event.stopPropagation();
+		const clamped = clampPanelWidth(next, area);
+		setWidth(clamped);
+		saveWidth(clamped);
+	};
 	return (
 		<aside ref={aside} aria-label="Session panel" data-testid="right-panel"
-			style={{ width: clampPanelWidth(width, typeof window === "undefined" ? 2 * width : areaWidth()) }}
+			// A live quiz's document-level Enter/Space handler must not fire from this panel's
+			// buttons; stopping propagation keeps native button activation.
+			onKeyDown={(event) => {
+				if ((event.key === "Enter" || event.key === " ") && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) event.stopPropagation();
+			}}
+			style={{ width: shownWidth }}
 			className="relative flex shrink-0 flex-col border-l border-border bg-background">
-			<div role="separator" aria-orientation="vertical" aria-label="Resize panel" data-testid="right-panel-resize"
-				onPointerDown={startDrag}
-				className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize hover:bg-primary/20" />
+			<div role="separator" tabIndex={0} aria-orientation="vertical" aria-label="Resize panel" data-testid="right-panel-resize"
+				aria-valuenow={shownWidth} aria-valuemin={MIN_WIDTH} aria-valuemax={maxWidth}
+				onPointerDown={startDrag} onKeyDown={resizeKey}
+				className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize hover:bg-primary/20 focus-visible:bg-primary/20 focus-visible:outline-none" />
 			<div role="tablist" className="flex shrink-0 gap-1 border-b border-border px-3 pt-2">
 				{tabs.map((tab) => (
 					<button key={tab.id} type="button" role="tab" aria-selected={tab.id === active} data-testid={`right-panel-tab-${tab.id}`}
