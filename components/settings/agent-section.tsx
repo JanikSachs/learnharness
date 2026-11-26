@@ -982,7 +982,7 @@ export function AgentSection({
 			<SettingsGroup label="Time" testid="group-time">
 				<SettingsRow
 					label="Time context"
-					hint="Tells the tutor your local date and time when a chat starts and after breaks of 3 hours or more"
+					hint="Tells the tutor your local date and time when a chat starts, after breaks of 3 hours or more, when the date changes, and after the chat is compacted"
 					testid="time-context-row"
 				>
 					<Toggle
