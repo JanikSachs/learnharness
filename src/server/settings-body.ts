@@ -33,6 +33,7 @@ import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isSearchEngineId, SEARCH_ENGINES } from "../core/search.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 import { parseFileAccessSettings } from "../core/file-access.ts";
+import { isValidTimeZone } from "../core/time-notes.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -217,6 +218,24 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 			return { ok: false, error: "graphTools.enabled must be a boolean" };
 		}
 		settings.graphTools = graphTools.enabled === undefined ? {} : { enabled: graphTools.enabled };
+	}
+	// Time context (fork): strict write side.
+	if (raw.timeContext !== undefined) {
+		const tc = asRecord(raw.timeContext);
+		if (!tc) return { ok: false, error: "timeContext must be an object" };
+		if (tc.enabled !== undefined && typeof tc.enabled !== "boolean") {
+			return { ok: false, error: "timeContext.enabled must be a boolean" };
+		}
+		if (tc.timeZone !== undefined && !isValidTimeZone(tc.timeZone)) {
+			return { ok: false, error: "timeContext.timeZone must be a valid IANA time zone" };
+		}
+		if (tc.enabled === true && tc.timeZone === undefined) {
+			return { ok: false, error: "timeContext.timeZone is required when timeContext is enabled" };
+		}
+		settings.timeContext = {
+			...(tc.enabled === undefined ? {} : { enabled: tc.enabled }),
+			...(tc.timeZone === undefined ? {} : { timeZone: tc.timeZone }),
+		};
 	}
 	if (raw.fileAccess !== undefined) {
 		const parsed = parseFileAccessSettings(raw.fileAccess);

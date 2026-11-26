@@ -37,6 +37,7 @@ import type { ChatSettings } from "./contracts/chat.ts";
 import { isSearchEngineId, type SearchEngineId } from "./search.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
 import { parseFileAccessSettings, type FileAccessSettings } from "./file-access.ts";
+import { isValidTimeZone } from "./time-notes.ts";
 import { COLOR_OVERRIDE_KEYS, isThemeId, type AppearanceColorOverrides } from "./themes.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
@@ -348,6 +349,16 @@ export interface DictationSettings {
 }
 
 /** Agent settings — everything about the non-conversation machinery. */
+export interface TimeContextSettings {
+	enabled?: boolean;
+	timeZone?: string;
+}
+
+/** The zone to use, or null when the feature is off or incomplete. */
+export function activeTimeZone(timeContext: TimeContextSettings | undefined): string | null {
+	return timeContext?.enabled === true && isValidTimeZone(timeContext.timeZone) ? timeContext.timeZone : null;
+}
+
 export interface AgentSettings {
 	/** Maximum simultaneous background-worker model requests (default 8).
 	 *  Direct conversations bypass this limit. Positive safe integers only:
@@ -373,6 +384,10 @@ export interface AgentSettings {
 	 *  tool-toggles map. Absent = enabled (the toggle discipline); the
 	 *  effective gate composes graph.enabled AND this switch. */
 	graphTools?: { enabled?: boolean };
+	/** Time context (fork): computed `[app: time]` notes + time rule for the
+	 *  conversation agents. Active only when enabled AND a valid IANA zone is
+	 *  set; absent = off. */
+	timeContext?: TimeContextSettings;
 	/** System-prompt override SWITCHES keyed by segment path (absent key =
 	 *  off). Switch-on requires the override file to exist (enforced by the
 	 *  route); the switch is explicit so users keep a file on disk but run
@@ -789,6 +804,14 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 		const enabled = (raw.graphTools as Record<string, unknown>).enabled;
 		if (enabled === undefined) out.graphTools = {};
 		else if (typeof enabled === "boolean") out.graphTools = { enabled };
+	}
+	// Time context: lenient read side, invalid fields drop (= feature off).
+	if (raw.timeContext !== null && typeof raw.timeContext === "object" && !Array.isArray(raw.timeContext)) {
+		const tc = raw.timeContext as Record<string, unknown>;
+		const timeContext: TimeContextSettings = {};
+		if (typeof tc.enabled === "boolean") timeContext.enabled = tc.enabled;
+		if (isValidTimeZone(tc.timeZone)) timeContext.timeZone = tc.timeZone;
+		out.timeContext = timeContext;
 	}
 	// Never drop a malformed access policy into the unrestricted default.
 	// The strict store reader separately reports its configuration error;
