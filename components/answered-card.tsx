@@ -40,7 +40,7 @@ function scrollParent(el: HTMLElement): HTMLElement | null {
  * client — the card reveals his answer, the committed correct answer, and
  * the explanation, with NO verdict chips (owner ruling 2026-09-27).
  */
-export function AnsweredCard({ answer: savedAnswer, input, toolCallId }: { answer: QuestionAnswerData; input?: unknown; toolCallId?: string }) {
+export function AnsweredCard({ answer: savedAnswer, input, toolCallId, anchorId }: { answer: QuestionAnswerData; input?: unknown; toolCallId?: string; anchorId?: string }) {
 	const answer = answerForPresentation(savedAnswer, input);
 	const optionLetters = answeredOptionLetters(savedAnswer, input);
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
@@ -125,7 +125,7 @@ export function AnsweredCard({ answer: savedAnswer, input, toolCallId }: { answe
 
 	if (answer.dismissed) {
 		return (
-			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+			<div id={anchorId} className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
 				<span className="font-medium">{answer.questionText}</span> — skipped
 			</div>
 		);
@@ -161,6 +161,7 @@ export function AnsweredCard({ answer: savedAnswer, input, toolCallId }: { answe
 		    the bottom rhythm when a row ends the card. */}
 		<div
 			ref={cardRef}
+			id={anchorId}
 			className="rounded-xl border bg-card p-4 text-card-foreground [&>*:last-child]:mb-0"
 			data-testid="answered-card"
 			data-question-layout={columns ? "columns" : "stacked"}

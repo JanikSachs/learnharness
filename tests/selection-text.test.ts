@@ -35,6 +35,22 @@ describe("readSourceText", () => {
 		assert.equal(readSourceText(sourceElements(v, "m")).text, "one\ntwo\nthree");
 	});
 
+	it("keeps material-link labels while still skipping other buttons", () => {
+		const v = viewport(`<div data-source-message-id="m"><p>see <button data-testid="material-link" data-material-id="t3f9a2c">the notes</button> now <button>Copy</button></p></div>`);
+		const { text } = readSourceText(sourceElements(v, "m"));
+		assert.equal(text, "see the notes now ");
+	});
+
+	it("selects only a material link, and a sentence across one", () => {
+		const v = viewport(`<div data-source-message-id="m"><p>see <button data-testid="material-link">the notes</button> now</p></div>`);
+		const { text, chunks } = readSourceText(sourceElements(v, "m"));
+		const link = chunks.find((c) => c.node.textContent === "the notes")!;
+		assert.equal(selectorFromBoundaries(text, chunks, { node: link.node, offset: 0 }, { node: link.node, offset: 9 })!.text, "the notes");
+		const first = chunks[0]!;
+		const last = chunks.at(-1)!;
+		assert.equal(selectorFromBoundaries(text, chunks, { node: first.node, offset: 0 }, { node: last.node, offset: 4 })!.text, "see the notes now");
+	});
+
 	it("skips formulas without a TeX annotation", () => {
 		const v = viewport(`<div data-source-message-id="m"><p>a <span class="katex"><span>?</span></span> b</p></div>`);
 		assert.equal(readSourceText(sourceElements(v, "m")).text, "a  b");

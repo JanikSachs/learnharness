@@ -12,6 +12,8 @@ import { createTextSelector, findCitationText, type TextSelector } from "@/src/c
 export const SOURCE_ATTRIBUTE = "data-source-message-id";
 
 const EXCLUDED = "button, input, textarea, select, [role=button], [contenteditable], [hidden], [aria-hidden=true], script, style, template, noscript, svg";
+// Tutor prose links `[text](material:id)` render as buttons but are prose.
+const MATERIAL_LINK = '[data-testid="material-link"]';
 const BLOCKS = new Set(["ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "DD", "DIV", "DL", "DT", "FIGCAPTION", "FIGURE", "FOOTER", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "TABLE", "TD", "TH", "TR", "UL"]);
 const LEGACY_TEX = 'annotation[encoding="application/x-tex"]';
 
@@ -70,7 +72,7 @@ export function readSourceText(sources: readonly Element[]): { text: string; chu
 			if (tex) add(element, element.parentElement?.closest(".katex-display") ? `$$${tex}$$` : `$${tex}$`, true);
 			return;
 		}
-		if (element.matches(EXCLUDED)) return;
+		if (element.matches(EXCLUDED) && !element.matches(MATERIAL_LINK)) return;
 		if (element.tagName === "BR") { pendingBreak = true; return; }
 		const block = isBlock(element);
 		if (block) pendingBreak = true;

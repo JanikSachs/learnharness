@@ -137,6 +137,7 @@ export function KeyboardShortcuts() {
 					handlersRef.current.setCheatOpen(true);
 					break;
 				case "toggle-question-thread":
+				case "toggle-materials":
 					// The chat view owns it (only while a question waits); claim the
 					// chord so a browser tab's own ⌘J (Downloads) never fires too.
 					e.preventDefault();

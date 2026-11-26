@@ -94,9 +94,39 @@ export function revealCitationSource({ transcript, scroll, citation, currentChat
 		scrollSessionTarget(range!, transcript, scroll);
 		pulse(range!, window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
 	} else if (plan === "message" && transcript && message instanceof HTMLElement) {
-		scrollSessionTarget(message, transcript, scroll);
-		message.classList.add("lh-source-highlight");
-		window.setTimeout(() => message.classList.remove("lh-source-highlight"), 2_000);
+		flashMessage(message, transcript, scroll);
 	}
 	return plan;
+}
+
+function flashMessage(message: HTMLElement, transcript: HTMLElement, scroll: SessionScrollContext | null): void {
+	scrollSessionTarget(message, transcript, scroll);
+	highlight(message);
+}
+
+function highlight(element: HTMLElement): void {
+	element.classList.add("lh-source-highlight");
+	window.setTimeout(() => element.classList.remove("lh-source-highlight"), 2_000);
+}
+
+/** Scroll to a whole message in this transcript and flash it (materials'
+ *  "Go to message"). False when the message is not rendered. */
+export function revealMessage({ transcript, scroll, messageId, pendingDock }: {
+	transcript: HTMLElement | null;
+	scroll: SessionScrollContext | null;
+	messageId: string;
+	/** The question dock, when this message's question is still pending (the
+	 *  dock lives outside the transcript). */
+	pendingDock?: HTMLElement | null;
+}): boolean {
+	if (!transcript) return false;
+	const message = transcript.ownerDocument.getElementById(messageAnchorId(messageId)) ?? sourceElements(transcript, messageId)[0] ?? null;
+	if (!(message instanceof HTMLElement)) {
+		if (!pendingDock) return false;
+		pendingDock.scrollIntoView?.({ block: "nearest" });
+		highlight(pendingDock);
+		return true;
+	}
+	flashMessage(message, transcript, scroll);
+	return true;
 }
