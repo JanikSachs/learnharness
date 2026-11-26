@@ -48,7 +48,29 @@ describe("time notes", () => {
 		const system = { role: "system", content: "s", timestamp: T0 } as unknown as Message;
 		const head = user(T0 + 10 * H, "summary");
 		const out = withTimeNotes([system, head, user(T0), assistant(T0), user(T0 + 4 * H)], ZONE, true);
-		assert.deepEqual(out.map((m) => isNote(m) ? "note" : m.role), ["system", "user", "user", "assistant", "user", "note"]);
+		assert.deepEqual(out.map((m) => isNote(m) ? "note" : m.role), ["system", "user", "user", "note", "assistant", "user", "note"]);
+	});
+
+	it("anchors the first message after a compaction head with a one-line note", () => {
+		const out = withTimeNotes([user(T0 + 10 * H, "summary"), user(T0 + 1000)], ZONE, true);
+		assert.deepEqual(out.map((m) => isNote(m) ? "note" : m.role), ["user", "user", "note"]);
+		assert.equal(noteText(out[2]!), "[app: time] Fri 2026-11-20 13:00 (Europe/Berlin).");
+	});
+
+	it("adds a one-line note when the local date changes without a gap", () => {
+		const late = Date.UTC(2026, 10, 22, 22, 30); // 23:30 Berlin Sun
+		const out = withTimeNotes([user(T0), assistant(late - H), user(late), user(late + H)], ZONE);
+		assert.equal(out.filter(isNote).length, 1 + 1 + 1); // start, gap (>=3h from T0), midnight
+		const next = withTimeNotes([user(late), user(late + H)], ZONE);
+		assert.equal(noteText(next.filter(isNote)[1]!), "[app: time] Mon 2026-11-23 00:30 (Europe/Berlin).");
+	});
+
+	it("keeps note positions independent of later messages", () => {
+		const base = [user(T0), assistant(T0 + 4 * H), user(T0 + 5 * H), assistant(T0 + 5 * H, ["c"]), result(T0 + 9 * H, "c")];
+		const a = withTimeNotes(base, ZONE);
+		const b = withTimeNotes([...base, user(T0 + 10 * H)], ZONE);
+		assert.deepEqual(b.slice(0, a.length), a);
+		assert.deepEqual(a.map((m) => isNote(m) ? "note" : m.role), ["user", "note", "assistant", "note", "user", "assistant", "toolResult", "note"]);
 	});
 
 	it("follows daylight saving in the chosen zone", () => {
